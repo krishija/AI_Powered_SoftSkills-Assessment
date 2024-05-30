@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Soft Skills Assessment</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/5.3.0/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <style>
+        body {
+            background-color: #f8f9fa;
+            color: #343a40;
+            font-family: 'Arial', sans-serif;
+        }
+        .container {
+            margin-top: 50px;
+        }
+        .record-btn, .stop-btn {
+            display: block;
+            margin: 10px 0;
+            width: 100%;
+        }
+        .message {
+            margin-top: 20px;
+        }
+        #plot img {
+            max-width: 100%;
+            height: auto;
+            border: 2px solid #6c757d;
+            border-radius: 10px;
+        }
+        .file-label.uploaded {
+            background-color: #28a745;
+        }
+        #skills-plot {
+            max-width: 100%;
+        }
+        #analysis {
+            margin-top: 20px;
+        }
+        .alert {
+            border-radius: 10px;
+        }
+        .card {
+            margin-top: 20px;
+            border-radius: 15px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        }
+        .btn {
+            border-radius: 50px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="text-center mb-4">Soft Skills Assessment</h1>
+        <div class="card p-4">
+            <div id="question-container" class="alert alert-info text-center"></div>
+            <div class="upload-form">
+                <form id="record-form" method="post" enctype="multipart/form-data">
+                    <input type="hidden" id="question-input" name="question">
+                    <button type="button" id="start-record-btn" class="btn btn-primary record-btn">
+                        <i class="fas fa-microphone-alt"></i> Start Recording
+                    </button>
+                    <button type="button" id="stop-record-btn" class="btn btn-danger stop-btn" disabled>
+                        <i class="fas fa-stop-circle"></i> Stop Recording
+                    </button>
+                    <input type="file" id="audio-file" name="audio_data" style="display:none;">
+                </form>
+                <div id="recording-status" class="alert alert-info text-center" style="display:none;">
+                    Recording...
+                </div>
+                <div id="success-message" class="alert alert-success text-center" style="display:none;">
+                    Audio received. Processing...
+                </div>
+                <div id="error-message" class="alert alert-danger text-center" style="display:none;"></div>
+            </div>
+            <div id="plot" class="text-center" style="display:none;">
+                <img src="" alt="Soft Skills Plot">
+            </div>
+            <div id="analysis" style="display:none;">
+                <h3 class="text-center mt-4">Analysis</h3>
+                <div id="analysis-content" class="p-3"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let mediaRecorder;
+        let audioChunks = [];
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            const questionResponse = await fetch('/random-question');
+            const questionData = await questionResponse.json();
+            document.getElementById('question-container').textContent = questionData.question;
+            document.getElementById('question-input').value = questionData.question;
+        });
+
+        document.getElementById('start-record-btn').addEventListener('click', async () => {
+            audioChunks = [];
+            let stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            mediaRecorder = new MediaRecorder(stream);
+            mediaRecorder.start();
+            document.getElementById('start-record-btn').disabled = true;
+            document.getElementById('stop-record-btn').disabled = false;
+            document.getElementById('recording-status').style.display = 'block';
+
+            mediaRecorder.ondataavailable = event => {
+                audioChunks.push(event.data);
+            };
+        });
+
+        document.getElementById('stop-record-btn').addEventListener('click', () => {
+            mediaRecorder.stop();
+            document.getElementById('recording-status').style.display = 'none';
+            document.getElementById('success-message').style.display = 'block';
+            document.getElementById('start-record-btn').disabled = false;
+            document.getElementById('stop-record-btn').disabled = true;
+
+            mediaRecorder.onstop = () => {
+                let audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+                let audioFile = new File([audioBlob], 'recording.wav', { type: 'audio/wav' });
+                let formData = new FormData();
+                formData.append('audio_data', audioFile);
+                formData.append('question', document.getElementById('question-input').value);
+
+                fetch('/record', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        document.getElementById('error-message').textContent = data.error;
+                        document.getElementById('error-message').style.display = 'block';
+                        document.getElementById('success-message').style.display = 'none';
+                    } else {
+                        document.getElementById('plot').style.display = 'block';
+                        document.querySelector('#plot img').src = 'data:image/png;base64,' + data.plot;
+                        document.getElementById('success-message').style.display = 'none';
+
+                        // Display analysis
+                        const analysisContent = document.getElementById('analysis-content');
+                        analysisContent.innerHTML = '';
+                        for (const skill in data.analysis) {
+                            const analysisItem = document.createElement('p');
+                            analysisItem.textContent = `${skill}: Keyword Density - ${data.analysis[skill].keyword_density.toFixed(2)}, Entity Count - ${data.analysis[skill].entity_count}, Narrative Score - ${data.analysis[skill].narrative_score.toFixed(2)}, Total Score - ${data.analysis[skill].total_score.toFixed(2)}`;
+                            analysisItem.classList.add('p-2', 'rounded', 'bg-light', 'mb-2');
+                            analysisContent.appendChild(analysisItem);
+                        }
+
+                        document.getElementById('analysis').style.display = 'block';
+                    }
+                })
+                .catch(error => {
+                    document.getElementById('error-message').textContent = 'An error occurred';
+                    document.getElementById('error-message').style.display = 'block';
+                    document.getElementById('success-message').style.display = 'none';
+                });
+            };
+        });
+    </script>
+</body>
+</html>
